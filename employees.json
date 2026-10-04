@@ -1,0 +1,30 @@
+[
+  {
+    "employeeId": "EMP001",
+    "name": "Aarav Shah",
+    "email": "aarav@example.com",
+    "mobile": "9876543210",
+    "password": "secret123",
+    "gender": "Male",
+    "dob": "1999-05-12",
+    "department": "Engineering",
+    "designation": "Developer",
+    "doj": "2024-01-15",
+    "employmentType": "Full Time",
+    "photo": ""
+  },
+  {
+    "employeeId": "EMP002",
+    "name": "Diya Patel",
+    "email": "diya@example.com",
+    "mobile": "9123456780",
+    "password": "secret456",
+    "gender": "Female",
+    "dob": "2000-11-03",
+    "department": "Marketing",
+    "designation": "Designer",
+    "doj": "2025-03-01",
+    "employmentType": "Intern",
+    "photo": ""
+  }
+]
