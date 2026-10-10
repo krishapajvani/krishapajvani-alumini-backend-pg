@@ -1,0 +1,15 @@
+[
+  { "name": "name", "label": "Employee Name", "type": "text", "required": true },
+  { "name": "employeeId", "label": "Employee ID (leave blank to auto-generate)", "type": "text", "required": false },
+  { "name": "email", "label": "Email Address", "type": "email", "required": true },
+  { "name": "mobile", "label": "Mobile Number", "type": "text", "required": true },
+  { "name": "password", "label": "Password", "type": "password", "required": true },
+  { "name": "confirmPassword", "label": "Confirm Password", "type": "password", "required": true },
+  { "name": "gender", "label": "Gender", "type": "radio", "required": true, "options": ["Male", "Female", "Other"] },
+  { "name": "dob", "label": "Date of Birth", "type": "date", "required": true },
+  { "name": "department", "label": "Department", "type": "select", "required": true, "options": ["HR", "Engineering", "Finance", "Marketing", "Sales"] },
+  { "name": "designation", "label": "Designation", "type": "select", "required": true, "options": ["Manager", "Team Lead", "Developer", "Designer", "Analyst"] },
+  { "name": "doj", "label": "Date of Joining", "type": "date", "required": true },
+  { "name": "employmentType", "label": "Employment Type", "type": "select", "required": true, "options": ["Full Time", "Part Time", "Intern", "Contract"] },
+  { "name": "photo", "label": "Profile Photo (max 200KB)", "type": "file", "required": false }
+]
