@@ -1,14 +1,13 @@
 // ================= STATE =================
 const STORAGE_KEY = "employees";
-let formConfig = [];
-let employees = [];
-let isBulkEditing = false;
-let insertFormCounter = 0;
+let formConfig = [];      // loaded from employeeForm.json
+let employees = [];       // loaded from employees.json (then kept in localStorage)
+let editingId = null;     // null = add mode, otherwise the Employee ID being edited
 
 const $ = (id) => document.getElementById(id);
 const esc = (s = "") => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// ================= DATA LAYER =================
+// ================= DATA LAYER (JSON) =================
 async function loadData() {
   formConfig = await (await fetch("employeeForm.json")).json();
   const saved = localStorage.getItem(STORAGE_KEY);
@@ -16,474 +15,231 @@ async function loadData() {
 }
 const saveData = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(employees));
 
-function generateId(currentEmployees = employees) {
-  const max = currentEmployees.reduce((m, e) => Math.max(m, parseInt(String(e.employeeId).replace(/\D/g, "")) || 0), 0);
+function generateId() {
+  const max = employees.reduce((m, e) => Math.max(m, parseInt(e.employeeId.replace(/\D/g, "")) || 0), 0);
   return "EMP" + String(max + 1).padStart(3, "0");
 }
 
 // ================= VALIDATION =================
-function validate(d, editId = null, existingPool = employees) {
+function validate(d, editId = null) {
   const e = {};
   formConfig.forEach((f) => {
-    const skip = editId && f.type === "password";
-    if (f.required && !d[f.name] && !skip) e[f.name] = "Required";
+    const skip = editId && f.type === "password";            // blank password = keep old one
+    if (f.required && !d[f.name] && !skip) e[f.name] = "This field is required";
   });
 
-  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) e.email = "Invalid email";
-  if (d.mobile && !/^\d{10}$/.test(d.mobile)) e.mobile = "10 digits required";
+  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) e.email = "Enter a valid email address";
+  if (d.mobile && !/^\d{10}$/.test(d.mobile)) e.mobile = "Enter a valid 10-digit mobile number";
 
   if (d.password || !editId) {
-    if (d.password && d.password.length < 6) e.password = "Min 6 chars";
-    if (d.password !== d.confirmPassword && !editId) e.confirmPassword ||= "Mismatch";
+    if (d.password && d.password.length < 6) e.password = "Password must be at least 6 characters";
+    if (d.password !== d.confirmPassword) e.confirmPassword ||= "Passwords do not match";
   }
 
-  const others = existingPool.filter((x) => x.employeeId !== editId);
-  if (d.employeeId && others.some((x) => x.employeeId.toLowerCase() === d.employeeId.toLowerCase())) {
-    e.employeeId = "Duplicate ID";
-  }
-  if (d.email && others.some((x) => x.email.toLowerCase() === d.email.toLowerCase())) {
-    e.email ||= "Email exists";
-  }
+  const others = employees.filter((x) => x.employeeId !== editId);
+  if (d.employeeId && others.some((x) => x.employeeId.toLowerCase() === d.employeeId.toLowerCase()))
+    e.employeeId = "Employee ID already exists";
+  if (d.email && others.some((x) => x.email.toLowerCase() === d.email.toLowerCase()))
+    e.email ||= "Email is already registered";
 
   return e;
 }
 
-// ================= 1. BULK INSERT SECTION =================
-function createFieldHTML(f, formIndex) {
-  const fieldId = `field_${formIndex}_${f.name}`;
+// ================= CRUD =================
+function createEmployee(data) {
+  const errors = validate(data);
+  if (Object.keys(errors).length) return { ok: false, message: "Please fix the errors in the form", errors };
+
+  const emp = { ...data, employeeId: data.employeeId || generateId() };
+  delete emp.confirmPassword;
+  employees.push(emp);
+  saveData();
+  return { ok: true, message: `Employee ${emp.employeeId} added successfully` };
+}
+
+const getAllEmployees = () => employees;
+
+function getEmployeeById(id) {
+  if (!id) return { ok: false, message: "Employee ID is missing" };
+  const emp = employees.find((e) => e.employeeId === id);
+  return emp ? { ok: true, data: emp } : { ok: false, message: "Employee not found" };
+}
+
+function updateEmployee(id, data) {
+  const found = getEmployeeById(id);
+  if (!found.ok) return found;
+
+  const errors = validate(data, id);
+  if (Object.keys(errors).length) return { ok: false, message: "Please fix the errors in the form", errors };
+
+  const old = found.data;
+  const updated = { ...old, ...data, employeeId: old.employeeId, password: data.password || old.password, photo: data.photo || old.photo };
+  delete updated.confirmPassword;
+  employees[employees.indexOf(old)] = updated;
+  saveData();
+  return { ok: true, message: `Employee ${id} updated successfully` };
+}
+
+function deleteEmployee(id) {
+  const found = getEmployeeById(id);
+  if (!found.ok) return found;
+  employees = employees.filter((e) => e.employeeId !== id);
+  saveData();
+  return { ok: true, message: `Employee ${id} deleted successfully` };
+}
+
+function searchEmployees(text) {
+  const q = text.trim().toLowerCase();
+  return employees.filter((e) => [e.employeeId, e.name, e.email].some((v) => v.toLowerCase().includes(q)));
+}
+
+// ================= UI: FORM =================
+function fieldHTML(f) {
   let input;
-
-  if (f.type === "select") {
-    input = `<select id="${fieldId}" name="${f.name}">
-      <option value="">Select ${f.label}</option>
-      ${(f.options || []).map((o) => `<option value="${o}">${o}</option>`).join("")}
-    </select>`;
-  } else if (f.type === "radio") {
-    input = `<div class="radios">
-      ${(f.options || []).map((o) => `
-        <label><input type="radio" name="${f.name}_${formIndex}" value="${o}"> ${o}</label>
-      `).join("")}
-    </div>`;
-  } else {
-    input = `<input type="${f.type}" id="${fieldId}" name="${f.name}" ${f.type === "file" ? 'accept="image/*"' : ""}>`;
-  }
-
-  return `
-    <div class="field" data-field="${f.name}">
-      <label for="${fieldId}">${f.label}${f.required ? " *" : ""}</label>
-      ${input}
-      <small class="error"></small>
-    </div>
-  `;
+  if (f.type === "select")
+    input = `<select name="${f.name}"><option value="">Select</option>${f.options.map((o) => `<option>${o}</option>`).join("")}</select>`;
+  else if (f.type === "radio")
+    input = `<div class="radios">${f.options.map((o) => `<label><input type="radio" name="${f.name}" value="${o}">${o}</label>`).join("")}</div>`;
+  else
+    input = `<input type="${f.type}" name="${f.name}" ${f.type === "file" ? 'accept="image/*"' : ""}>`;
+  return `<div class="field" id="field-${f.name}"><label>${f.label}${f.required ? " *" : ""}</label>${input}<small class="error"></small></div>`;
 }
 
-function addEmployeeFormBlock() {
-  insertFormCounter++;
-  const container = $("formsContainer");
-  const formDiv = document.createElement("div");
-  formDiv.className = "employee-entry-block";
-  formDiv.dataset.formIndex = insertFormCounter;
-
-  const currentCount = container.children.length + 1;
-  formDiv.innerHTML = `
-    <div class="entry-header">
-      <span class="entry-title">Employee Form #${currentCount}</span>
-      ${container.children.length > 0 ? `<button type="button" class="danger remove-form-btn">Remove</button>` : ""}
-    </div>
-    <div class="form-grid">
-      ${formConfig.map((f) => createFieldHTML(f, insertFormCounter)).join("")}
-    </div>
-  `;
-
-  if (container.children.length > 0) {
-    formDiv.querySelector(".remove-form-btn").addEventListener("click", () => {
-      formDiv.remove();
-      updateFormTitles();
-    });
-  }
-
-  container.appendChild(formDiv);
+function renderForm() {
+  $("fields").innerHTML = formConfig.map(fieldHTML).join("");
 }
 
-function updateFormTitles() {
-  const forms = $("formsContainer").querySelectorAll(".employee-entry-block");
-  forms.forEach((form, idx) => {
-    form.querySelector(".entry-title").textContent = `Employee Form #${idx + 1}`;
+function showErrors(errors = {}) {
+  formConfig.forEach((f) => {
+    const box = $("field-" + f.name);
+    box.classList.toggle("invalid", !!errors[f.name]);
+    box.querySelector(".error").textContent = errors[f.name] || "";
   });
 }
 
-function resetInsertForms() {
-  $("formsContainer").innerHTML = "";
-  insertFormCounter = 0;
-  addEmployeeFormBlock();
+function resetForm() {
+  $("empForm").reset();
+  editingId = null;
+  $("formTitle").textContent = "Add Employee";
+  $("submitBtn").textContent = "Add Employee";
+  document.querySelector('[name="employeeId"]').readOnly = false;
+  showErrors();
 }
 
+function startEdit(id) {
+  const { ok, data, message } = getEmployeeById(id);
+  if (!ok) return toast(message, "error");
+
+  resetForm();
+  editingId = id;
+  formConfig.forEach((f) => {
+    if (f.type === "file" || f.type === "password") return;
+    if (f.type === "radio") {
+      const r = document.querySelector(`[name="${f.name}"][value="${data[f.name]}"]`);
+      if (r) r.checked = true;
+    } else {
+      document.querySelector(`[name="${f.name}"]`).value = data[f.name] || "";
+    }
+  });
+  document.querySelector('[name="employeeId"]').readOnly = true;
+  $("formTitle").textContent = "Update Employee " + id;
+  $("submitBtn").textContent = "Update Employee";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// ================= UI: TABLE & DETAILS =================
+const avatar = (e) => (e.photo ? `<img class="avatar" src="${e.photo}" alt="">` : `<span class="avatar"></span>`);
+
+function renderTable(list = getAllEmployees()) {
+  $("tableBody").innerHTML = list.length
+    ? list.map((e) => `
+      <tr>
+        <td>${avatar(e)}</td>
+        <td>${esc(e.employeeId)}</td><td>${esc(e.name)}</td><td>${esc(e.email)}</td>
+        <td>${esc(e.mobile)}</td><td>${esc(e.department)}</td>
+        <td><div class="row-actions">
+          <button data-act="view" data-id="${esc(e.employeeId)}">View</button>
+          <button data-act="edit" data-id="${esc(e.employeeId)}">Edit</button>
+          <button data-act="delete" data-id="${esc(e.employeeId)}" class="danger">Delete</button>
+        </div></td>
+      </tr>`).join("")
+    : `<tr><td colspan="7" class="empty">No employees found</td></tr>`;
+}
+
+function showDetails(id) {
+  const { ok, data, message } = getEmployeeById(id);
+  if (!ok) return toast(message, "error");
+  const rows = [["Employee ID", data.employeeId], ["Name", data.name], ["Email", data.email], ["Mobile", data.mobile],
+    ["Gender", data.gender], ["Date of Birth", data.dob], ["Department", data.department],
+    ["Designation", data.designation], ["Date of Joining", data.doj], ["Employment Type", data.employmentType]];
+  $("details").hidden = false;
+  $("details").innerHTML = `<h2>Employee Details</h2>${avatar(data)}<dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+  $("details").scrollIntoView({ behavior: "smooth" });
+}
+
+let toastTimer;
+function toast(msg, type = "success") {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = "toast"), 3000);
+}
+
+// ================= PHOTO =================
 function readPhoto(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.size) return resolve("");
-    if (file.size > 200 * 1024) return reject("Photo max 200KB");
+    if (file.size > 200 * 1024) return reject("Photo must be smaller than 200KB");
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(file);
   });
 }
 
-// Bulk Insert Submission
-$("bulkInsertForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const formBlocks = Array.from($("formsContainer").querySelectorAll(".employee-entry-block"));
-  const newEmployees = [];
-  let hasErrors = false;
-  let tempPool = [...employees];
+// ================= EVENTS =================
+$("empForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const raw = Object.fromEntries(new FormData(ev.target));
+  const data = {};
+  formConfig.forEach((f) => { if (f.type !== "file") data[f.name] = String(raw[f.name] || "").trim(); });
 
-  for (const block of formBlocks) {
-    const fIdx = block.dataset.formIndex;
-    const data = {};
-
-    formConfig.forEach((f) => {
-      if (f.type === "radio") {
-        const checked = block.querySelector(`input[name="${f.name}_${fIdx}"]:checked`);
-        data[f.name] = checked ? checked.value : "";
-      } else if (f.type === "file") {
-        const fileInput = block.querySelector(`input[name="${f.name}"]`);
-        data._file = fileInput ? fileInput.files[0] : null;
-      } else {
-        const input = block.querySelector(`[name="${f.name}"]`);
-        data[f.name] = input ? input.value.trim() : "";
-      }
-    });
-
-    if (data._file) {
-      try {
-        data.photo = await readPhoto(data._file);
-      } catch (err) {
-        hasErrors = true;
-        const errEl = block.querySelector(`[data-field="photo"] .error`);
-        if (errEl) errEl.textContent = err;
-      }
-    } else {
-      data.photo = "";
-    }
-    delete data._file;
-
-    // Validate
-    const errs = validate(data, null, tempPool);
-    block.querySelectorAll(".field").forEach((box) => {
-      const fieldName = box.dataset.field;
-      const msg = errs[fieldName] || "";
-      box.classList.toggle("invalid", !!msg);
-      box.querySelector(".error").textContent = msg;
-    });
-
-    if (Object.keys(errs).length > 0) {
-      hasErrors = true;
-    } else {
-      if (!data.employeeId) data.employeeId = generateId(tempPool);
-      delete data.confirmPassword;
-      tempPool.push(data);
-      newEmployees.push(data);
-    }
+  try {
+    data.photo = await readPhoto(raw.photo);
+  } catch (msg) {
+    showErrors({ photo: msg });
+    return toast(msg, "error");
   }
 
-  if (hasErrors) {
-    return toast("Please resolve errors across all forms before bulk inserting", "error");
+  const result = editingId ? updateEmployee(editingId, data) : createEmployee(data);
+  if (!result.ok) {
+    showErrors(result.errors);
+    return toast(result.message, "error");
   }
-
-  employees.push(...newEmployees);
-  saveData();
-  toast(`Bulk Insert successful! Added ${newEmployees.length} employee(s).`);
-  resetInsertForms();
-  renderEmployeeList();
+  toast(result.message);
+  resetForm();
+  renderTable();
 });
 
-$("addMoreBtn").addEventListener("click", () => addEmployeeFormBlock());
-$("resetInsertBtn").addEventListener("click", resetInsertForms);
+$("resetBtn").addEventListener("click", resetForm);
+$("search").addEventListener("input", (ev) => renderTable(searchEmployees(ev.target.value)));
 
-// ================= 2 & 5. ALL EMPLOYEES: EDITABLE VIEW & CARDS =================
-function renderEmployeeList(list = employees) {
-  const container = $("employeeList");
-
-  if (!list.length) {
-    container.innerHTML = `<div class="empty-msg">No employees found.</div>`;
-    updateBulkControls();
-    return;
-  }
-
-  container.innerHTML = list.map((emp) => {
-    return `
-      <div class="emp-card" data-id="${esc(emp.employeeId)}">
-        <!-- 5. Checkbox on the far left -->
-        <input type="checkbox" class="row-select" data-id="${esc(emp.employeeId)}">
-
-        <!-- Profile photo -->
-        <div class="emp-avatar-wrap">
-          ${emp.photo ? `<img src="${emp.photo}" class="avatar" alt="">` : `<div class="avatar"></div>`}
-        </div>
-
-        <!-- Editable employee inputs (Direct HTML Controls, not static text) -->
-        <div class="emp-controls-grid">
-          <div class="ctrl-item">
-            <label>ID</label>
-            <input type="text" data-key="employeeId" value="${esc(emp.employeeId)}" readonly>
-          </div>
-          <div class="ctrl-item">
-            <label>Name</label>
-            <input type="text" data-key="name" value="${esc(emp.name)}">
-          </div>
-          <div class="ctrl-item">
-            <label>Email</label>
-            <input type="email" data-key="email" value="${esc(emp.email)}">
-          </div>
-          <div class="ctrl-item">
-            <label>Mobile</label>
-            <input type="tel" data-key="mobile" value="${esc(emp.mobile)}">
-          </div>
-          <div class="ctrl-item">
-            <label>Password</label>
-            <input type="password" data-key="password" value="${esc(emp.password || "")}" placeholder="••••••">
-          </div>
-          <div class="ctrl-item">
-            <label>Gender</label>
-            <select data-key="gender">
-              <option value="Male" ${emp.gender === "Male" ? "selected" : ""}>Male</option>
-              <option value="Female" ${emp.gender === "Female" ? "selected" : ""}>Female</option>
-              <option value="Other" ${emp.gender === "Other" ? "selected" : ""}>Other</option>
-            </select>
-          </div>
-          <div class="ctrl-item">
-            <label>DOB</label>
-            <input type="date" data-key="dob" value="${esc(emp.dob || "")}">
-          </div>
-          <div class="ctrl-item">
-            <label>Department</label>
-            <select data-key="department">
-              ${["HR", "Engineering", "Finance", "Marketing", "Sales"].map(d => `
-                <option value="${d}" ${emp.department === d ? "selected" : ""}>${d}</option>
-              `).join("")}
-            </select>
-          </div>
-          <div class="ctrl-item">
-            <label>Designation</label>
-            <select data-key="designation">
-              ${["Manager", "Team Lead", "Developer", "Designer", "Analyst"].map(d => `
-                <option value="${d}" ${emp.designation === d ? "selected" : ""}>${d}</option>
-              `).join("")}
-            </select>
-          </div>
-          <div class="ctrl-item">
-            <label>Type</label>
-            <select data-key="employmentType">
-              ${["Full Time", "Part Time", "Intern", "Contract"].map(t => `
-                <option value="${t}" ${emp.employmentType === t ? "selected" : ""}>${t}</option>
-              `).join("")}
-            </select>
-          </div>
-          <div class="ctrl-item file-input-wrap">
-            <label>Photo</label>
-            <input type="file" data-key="photo" accept="image/*">
-          </div>
-        </div>
-
-        <!-- Individual Edit & Delete actions on the far right -->
-        <div class="emp-actions">
-          <button type="button" class="single-edit-btn" data-id="${esc(emp.employeeId)}">Edit</button>
-          <button type="button" class="danger single-delete-btn" data-id="${esc(emp.employeeId)}">Delete</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  updateBulkControls();
-}
-
-// ================= 3. BULK UPDATE SECTION =================
-function toggleBulkEdit(active) {
-  isBulkEditing = active;
-  const listCard = document.querySelector(".list-section");
-  listCard.classList.toggle("bulk-edit-mode", active);
-  $("bulkEditBtn").hidden = active;
-  $("bulkEditActions").hidden = !active;
-
-  document.querySelectorAll(".emp-card").forEach((card) => {
-    card.classList.toggle("is-editing", active);
-  });
-}
-
-$("bulkEditBtn").addEventListener("click", () => toggleBulkEdit(true));
-$("cancelBulkEditBtn").addEventListener("click", () => {
-  toggleBulkEdit(false);
-  renderEmployeeList(getFilteredEmployees());
-});
-
-$("saveBulkEditBtn").addEventListener("click", async () => {
-  const cards = document.querySelectorAll(".emp-card");
-  let hasErrors = false;
-  const updatedRecords = [];
-
-  for (const card of cards) {
-    const id = card.dataset.id;
-    const old = employees.find(e => e.employeeId === id);
-    if (!old) continue;
-
-    const data = { ...old };
-    card.querySelectorAll("[data-key]").forEach((input) => {
-      const key = input.dataset.key;
-      if (key !== "photo") data[key] = input.value.trim();
-    });
-
-    const fileInput = card.querySelector('input[data-key="photo"]');
-    if (fileInput && fileInput.files[0]) {
-      try {
-        data.photo = await readPhoto(fileInput.files[0]);
-      } catch (err) {
-        toast(err, "error");
-        hasErrors = true;
-      }
-    }
-
-    const errs = validate(data, id);
-    if (Object.keys(errs).length > 0) {
-      hasErrors = true;
-      card.style.outline = "2px solid var(--danger)";
-    } else {
-      card.style.outline = "none";
-      updatedRecords.push(data);
-    }
-  }
-
-  if (hasErrors) {
-    return toast("Validation failed on one or more rows. Please review inputs.", "error");
-  }
-
-  updatedRecords.forEach((rec) => {
-    const idx = employees.findIndex((e) => e.employeeId === rec.employeeId);
-    if (idx !== -1) employees[idx] = rec;
-  });
-
-  saveData();
-  toggleBulkEdit(false);
-  renderEmployeeList(getFilteredEmployees());
-  toast(`Bulk update successful! Updated ${updatedRecords.length} records.`);
-});
-
-// ================= 4. BULK DELETE & SELECTION =================
-function updateBulkControls() {
-  const selectedBoxes = document.querySelectorAll(".row-select:checked");
-  const count = selectedBoxes.length;
-  const totalBoxes = document.querySelectorAll(".row-select");
-
-  $("selectAllCheckbox").checked = totalBoxes.length > 0 && count === totalBoxes.length;
-  $("selectAllCheckbox").indeterminate = count > 0 && count < totalBoxes.length;
-
-  $("bulkDeleteBtn").disabled = count === 0;
-
-  if (count > 0) {
-    $("selectionBadge").hidden = false;
-    $("selectedCountText").textContent = `${count} selected`;
-  } else {
-    $("selectionBadge").hidden = true;
-  }
-
-  // Row selection visual toggle
-  document.querySelectorAll(".emp-card").forEach((card) => {
-    const chk = card.querySelector(".row-select");
-    card.classList.toggle("selected", chk && chk.checked);
-  });
-}
-
-$("selectAllCheckbox").addEventListener("change", (e) => {
-  const isChecked = e.target.checked;
-  document.querySelectorAll(".row-select").forEach((chk) => {
-    chk.checked = isChecked;
-  });
-  updateBulkControls();
-});
-
-$("bulkDeleteBtn").addEventListener("click", () => {
-  const selectedBoxes = Array.from(document.querySelectorAll(".row-select:checked"));
-  const idsToDelete = selectedBoxes.map((b) => b.dataset.id);
-  const count = idsToDelete.length;
-
-  if (!count) return;
-
-  const confirmed = confirm(`Are you sure you want to delete ${count} selected employee(s)? This cannot be undone.`);
-  if (!confirmed) return;
-
-  employees = employees.filter((e) => !idsToDelete.includes(e.employeeId));
-  saveData();
-  toast(`Bulk Delete successful! Removed ${count} employee(s).`);
-  renderEmployeeList(getFilteredEmployees());
-});
-
-// Row event listeners
-$("employeeList").addEventListener("change", (e) => {
-  if (e.target.classList.contains("row-select")) {
-    updateBulkControls();
+$("tableBody").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+  if (act === "view") showDetails(id);
+  if (act === "edit") startEdit(id);
+  if (act === "delete" && confirm(`Delete employee ${id}?`)) {
+    const result = deleteEmployee(id);
+    toast(result.message, result.ok ? "success" : "error");
+    if (editingId === id) resetForm();
+    $("details").hidden = true;
+    renderTable(searchEmployees($("search").value));
   }
 });
 
-$("employeeList").addEventListener("click", async (e) => {
-  const delBtn = e.target.closest(".single-delete-btn");
-  if (delBtn) {
-    const id = delBtn.dataset.id;
-    if (confirm(`Are you sure you want to delete employee ${id}?`)) {
-      employees = employees.filter((x) => x.employeeId !== id);
-      saveData();
-      toast(`Deleted employee ${id}`);
-      renderEmployeeList(getFilteredEmployees());
-    }
-    return;
-  }
-
-  const editBtn = e.target.closest(".single-edit-btn");
-  if (editBtn) {
-    const card = editBtn.closest(".emp-card");
-    const id = editBtn.dataset.id;
-    const isNowEditing = !card.classList.contains("is-editing");
-
-    if (isNowEditing) {
-      card.classList.add("is-editing");
-      editBtn.textContent = "Save";
-      editBtn.classList.add("primary");
-    } else {
-      // Save single row
-      const old = employees.find(x => x.employeeId === id);
-      const data = { ...old };
-      card.querySelectorAll("[data-key]").forEach((input) => {
-        if (input.dataset.key !== "photo") data[input.dataset.key] = input.value.trim();
-      });
-
-      const fileInput = card.querySelector('input[data-key="photo"]');
-      if (fileInput && fileInput.files[0]) {
-        try { data.photo = await readPhoto(fileInput.files[0]); } catch(err) { return toast(err, "error"); }
-      }
-
-      const errs = validate(data, id);
-      if (Object.keys(errs).length) {
-        return toast("Please fix validation errors on this row", "error");
-      }
-
-      const idx = employees.findIndex(x => x.employeeId === id);
-      employees[idx] = data;
-      saveData();
-      toast(`Updated employee ${id}`);
-      card.classList.remove("is-editing");
-      editBtn.textContent = "Edit";
-      editBtn.classList.remove("primary");
-      renderEmployeeList(getFilteredEmployees());
-    }
-  }
-});
-
-// ================= SEARCH & EXPORT =================
-function getFilteredEmployees() {
-  const q = $("search").value.trim().toLowerCase();
-  if (!q) return employees;
-  return employees.filter((e) => [e.employeeId, e.name, e.email].some((v) => String(v).toLowerCase().includes(q)));
-}
-
-$("search").addEventListener("input", () => renderEmployeeList(getFilteredEmployees()));
-
+// Browsers cannot write to a file directly, so this downloads the current data as employees.json
 $("exportBtn").addEventListener("click", () => {
   const link = document.createElement("a");
   link.href = URL.createObjectURL(new Blob([JSON.stringify(employees, null, 2)], { type: "application/json" }));
@@ -492,27 +248,13 @@ $("exportBtn").addEventListener("click", () => {
   URL.revokeObjectURL(link.href);
 });
 
-// ================= TOAST =================
-let toastTimer;
-function toast(msg, type = "success") {
-  const t = $("toast");
-  t.textContent = msg;
-  t.className = `toast show ${type}`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.className = "toast"), 3200);
-}
-
-// ================= INITIALIZATION =================
+// ================= START =================
 (async function init() {
   try {
     await loadData();
-    resetInsertForms();
-    renderEmployeeList();
+    renderForm();
+    renderTable();
   } catch (err) {
-    document.querySelector("main").innerHTML = `
-      <div class='card'>
-        <h2>Error Loading Data</h2>
-        <p>Could not load JSON files. Please run via a local server (e.g. Live Server or python -m http.server).</p>
-      </div>`;
+    document.querySelector("main").innerHTML = "<p class='card'>Could not load JSON files. Run the project with a local server (e.g. VS Code Live Server).</p>";
   }
 })();

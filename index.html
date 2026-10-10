@@ -2,76 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Employee Management - Bulk Operations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Employee Management</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="toast" class="toast"></div>
 
   <main>
-    <header class="app-header">
-      <h1>Employee Management</h1>
-    </header>
+    <h1>Employee Management</h1>
 
-    <!-- SECTION 1: BULK INSERT / ADD EMPLOYEE -->
-    <section class="card form-section">
-      <div class="card-header">
-        <div>
-          <h2>Add Employees (Bulk Insert)</h2>
-          <p class="subtitle">Fill out one or multiple employee forms and submit together.</p>
-        </div>
-        <button type="button" id="addMoreBtn" class="secondary">+ Add Employee</button>
-      </div>
-
-      <form id="bulkInsertForm" novalidate>
-        <div id="formsContainer"></div>
+    <section class="card">
+      <h2 id="formTitle">Add Employee</h2>
+      <form id="empForm" novalidate>
+        <div id="fields"></div>
         <div class="actions">
-          <button type="submit" id="submitBulkBtn" class="primary">Add Employees</button>
-          <button type="button" id="resetInsertBtn" class="secondary">Reset</button>
+          <button type="submit" id="submitBtn" class="primary">Add Employee</button>
+          <button type="button" id="resetBtn" class="secondary">Reset</button>
         </div>
       </form>
     </section>
 
-    <!-- SECTION 2, 3, 4, 5: ALL EMPLOYEES / BULK EDIT & BULK DELETE -->
-    <section class="card list-section">
+    <section class="card">
       <div class="toolbar">
-        <div class="toolbar-title-wrap">
-          <h2>All Employees</h2>
-          <input type="search" id="search" placeholder="Search by ID, name, email...">
-        </div>
-
-        <div class="toolbar-actions">
-          <!-- Selection Counter & Bulk Delete -->
-          <div id="selectionBadge" class="selection-badge" hidden>
-            <span id="selectedCountText">0 selected</span>
-          </div>
-          <button type="button" id="bulkDeleteBtn" class="danger" disabled>Bulk Delete</button>
-
-          <!-- Bulk Edit & Actions -->
-          <button type="button" id="bulkEditBtn" class="secondary">Bulk Edit</button>
-          <div id="bulkEditActions" class="bulk-edit-actions" hidden>
-            <button type="button" id="saveBulkEditBtn" class="primary">Save Changes</button>
-            <button type="button" id="cancelBulkEditBtn" class="secondary">Cancel</button>
-          </div>
-
-          <button type="button" id="exportBtn" class="secondary">Download JSON</button>
-        </div>
+        <h2>All Employees</h2>
+        <input type="search" id="search" placeholder="Search by ID, name or email">
+        <button id="exportBtn" class="secondary">Download JSON</button>
       </div>
-
-      <!-- Selection & Table Control Header -->
-      <div class="list-controls-bar">
-        <label class="select-all-label">
-          <input type="checkbox" id="selectAllCheckbox">
-          <span>Select All</span>
-        </label>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Photo</th><th>ID</th><th>Name</th><th>Email</th><th>Mobile</th><th>Department</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
       </div>
-
-      <!-- Employee List Container (Cards / Non-static Rows) -->
-      <div id="employeeList" class="employee-list"></div>
     </section>
 
-    <!-- DETAILS VIEW MODAL/DRAWER -->
     <section class="card" id="details" hidden></section>
   </main>
 
